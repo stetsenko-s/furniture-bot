@@ -1,0 +1,2 @@
+-r bot/requirements.txt
+-r services/sketch/requirements.txt

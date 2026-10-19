@@ -1,0 +1,36 @@
+services:
+  sketch:
+    build:
+      context: .
+      dockerfile: services/sketch/Dockerfile
+    env_file: .env
+    environment:
+      SKETCH_HOST: 0.0.0.0
+      DATA_DIR: /data
+    ports:
+      - "127.0.0.1:8091:8091"
+    volumes:
+      - sketch-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=5)"]
+      interval: 15s
+      timeout: 6s
+      retries: 3
+  bot:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    env_file: .env
+    environment:
+      SKETCH_SERVICE_URL: http://sketch:8091
+      DATA_DIR: /data
+    volumes:
+      - bot-data:/data
+    restart: unless-stopped
+    depends_on:
+      sketch:
+        condition: service_healthy
+volumes:
+  bot-data:
+  sketch-data:
