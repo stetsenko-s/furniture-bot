@@ -1,18 +1,4 @@
-"""Проверка полноты распознанной конструкции перед генерацией эскиза."""
-
-
-def pending_questions(revision, has_sketch):
-    questions = list(revision['questions'])
-    brief = revision['brief']
-    if not brief.description.strip():
-        questions.append('Какое изделие нужно и из каких элементов оно состоит?')
-    for field, label in (('width_mm', 'ширину'), ('height_mm', 'высоту'), ('depth_mm', 'глубину')):
-        if getattr(brief, field) is None:
-            questions.append(f'Укажите {label} изделия в миллиметрах.')
-    if not has_sketch:
-        questions.append('Пришлите фотографию рукописного эскиза.')
-    return list(dict.fromkeys(questions))
-
+"""Проверки полноты заявки: выполняются только сервисом dialogue."""
 
 def clarification_questions(result, messages):
     """Не позволяет пустому questions скрыть неизвестные двери/наполнение.
@@ -52,3 +38,9 @@ def clarification_questions(result, messages):
             if text:
                 questions.append(text)
     return list(dict.fromkeys(questions))
+
+
+def analysis_result(result, messages):
+    from contracts.models import AnalysisResult
+    return AnalysisResult(brief=result.brief, reply=result.reply,
+                          questions=clarification_questions(result, messages))

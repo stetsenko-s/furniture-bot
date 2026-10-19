@@ -1,11 +1,40 @@
 services:
+  dialogue:
+    build:
+      context: .
+      dockerfile: services/dialogue/Dockerfile
+    environment:
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_DIALOGUE_MODEL: ${OPENROUTER_DIALOGUE_MODEL:-openai/gpt-4.1-mini}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DIALOGUE_MODEL: ${DIALOGUE_MODEL:-gpt-4.1-mini}
+      DIALOGUE_SERVICE_TOKEN: ${DIALOGUE_SERVICE_TOKEN:?Run configure.py first}
+      DIALOGUE_HOST: 0.0.0.0
+      DIALOGUE_PORT: 8092
+    ports:
+      - "127.0.0.1:8092:8092"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8092/health', timeout=5)"]
+      interval: 15s
+      timeout: 6s
+      retries: 3
   sketch:
     build:
       context: .
       dockerfile: services/sketch/Dockerfile
-    env_file: .env
     environment:
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_SKETCH_MODEL: ${OPENROUTER_SKETCH_MODEL:-openai/gpt-image-2}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SKETCH_MODEL: ${SKETCH_MODEL:-gpt-image-2}
+      SKETCH_QUALITY: ${SKETCH_QUALITY:-medium}
+      SKETCH_SIZE: ${SKETCH_SIZE:-1536x1024}
+      SKETCH_SERVICE_TOKEN: ${SKETCH_SERVICE_TOKEN:?Run configure.py first}
       SKETCH_HOST: 0.0.0.0
+      SKETCH_PORT: 8091
       DATA_DIR: /data
     ports:
       - "127.0.0.1:8091:8091"
@@ -21,14 +50,19 @@ services:
     build:
       context: .
       dockerfile: bot/Dockerfile
-    env_file: .env
     environment:
+      FURNITURE_BOT_TOKEN: ${FURNITURE_BOT_TOKEN:?Fill .env first}
+      SKETCH_SERVICE_TOKEN: ${SKETCH_SERVICE_TOKEN:?Run configure.py first}
+      DIALOGUE_SERVICE_TOKEN: ${DIALOGUE_SERVICE_TOKEN:?Run configure.py first}
       SKETCH_SERVICE_URL: http://sketch:8091
+      DIALOGUE_SERVICE_URL: http://dialogue:8092
       DATA_DIR: /data
     volumes:
       - bot-data:/data
     restart: unless-stopped
     depends_on:
+      dialogue:
+        condition: service_healthy
       sketch:
         condition: service_healthy
 volumes:

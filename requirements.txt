@@ -1,2 +1,3 @@
 -r bot/requirements.txt
+-r services/dialogue/requirements.txt
 -r services/sketch/requirements.txt

@@ -23,3 +23,6 @@ request_id обозначает одну версию заявки. Повтор
 Самостоятельная сборка: `docker build -f services/sketch/Dockerfile -t furniture-sketch .`.
 Для переноса на отдельный сервер нужны только services/sketch, contracts,
 infrastructure и run_sketch.py; код bot и токен Telegram не требуются.
+
+Промпт вынесен в `prompts/sketch.md`. После изменения перезапустите сервис.
+Сервис не импортирует dialogue или bot; принимает только SketchRequest.

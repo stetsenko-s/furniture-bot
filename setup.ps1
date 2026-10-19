@@ -8,4 +8,4 @@ if (-not (Test-Path -LiteralPath '.venv\Scripts\python.exe')) {
 if ($LASTEXITCODE -ne 0) { throw 'Не удалось установить зависимости.' }
 & '.\.venv\Scripts\python.exe' configure.py
 if ($LASTEXITCODE -ne 0) { throw 'Не удалось подготовить настройки.' }
-Write-Host 'Теперь заполните .env и запустите run_sketch.py и run_bot.py в двух терминалах.'
+Write-Host 'Теперь заполните .env и запустите run_dialogue.py, run_sketch.py и run_bot.py в трёх терминалах.'

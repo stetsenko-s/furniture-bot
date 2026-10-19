@@ -5,7 +5,8 @@ from types import SimpleNamespace
 import unittest
 
 from bot.main import Application
-from bot.llm import DialogueError
+from bot.dialogue_client import DialogueError
+from services.dialogue.src.rules import analysis_result
 from bot.sketch_client import SketchError
 from bot.store import Store
 from tests.test_project import PNG, completed
@@ -110,7 +111,7 @@ class FakeDialogue:
         if self.failed:
             raise DialogueError("test failure")
         last = next(m["text"] for m in reversed(messages) if m["role"] == "user")
-        return completed("Тумба. " + last)
+        return analysis_result(completed("Тумба. " + last), messages)
 
 
 class FakeSketch:

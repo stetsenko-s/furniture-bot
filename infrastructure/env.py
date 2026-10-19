@@ -8,10 +8,11 @@ KEYS = {
     "FURNITURE_BOT_TOKEN", "OPENAI_API_KEY", "DIALOGUE_MODEL", "SKETCH_MODEL",
     "SKETCH_QUALITY", "SKETCH_SIZE", "SKETCH_SERVICE_URL", "SKETCH_SERVICE_TOKEN",
     "SKETCH_HOST", "SKETCH_PORT", "DATA_DIR",
+    "DIALOGUE_SERVICE_URL", "DIALOGUE_SERVICE_TOKEN", "DIALOGUE_HOST", "DIALOGUE_PORT",
 }
 
 
-def load_env():
+def load_env(keys=None):
     path = ROOT / ".env"
     if not path.exists():
         return
@@ -21,7 +22,7 @@ def load_env():
             continue
         key, separator, value = line.partition("=")
         key = key.strip()
-        if not separator or key not in KEYS:
+        if not separator or key not in (KEYS if keys is None else keys):
             continue
         value = value.strip()
         if value.startswith(('"', "'")):

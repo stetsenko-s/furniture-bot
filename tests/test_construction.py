@@ -1,10 +1,11 @@
+from services.dialogue.src.rules import analysis_result
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from bot.main import Application
 from bot.store import Store
-from contracts.models import CabinetSection, DialogueResult
+from services.dialogue.src.models import CabinetSection, DialogueResult
 from pydantic import ValidationError
 from tests import test_bot as fixtures
 from tests.test_project import PNG, completed
@@ -26,7 +27,7 @@ class ConstructionTests(unittest.TestCase):
 
     def analyse(self, response=None, text='Шкаф', image=PNG):
         number = self.store.add_input(10, self.pid, text, image, 'image/png')
-        self.store.save_analysis(10, self.pid, number, response or completed())
+        self.store.save_analysis(10, self.pid, number, analysis_result(response or completed(), self.store.messages(10, self.pid)))
         return number
 
     def test_unknown_doors_block_even_if_model_returns_no_questions(self):
@@ -185,7 +186,7 @@ class ConstructionBotTests(unittest.IsolatedAsyncioTestCase):
             response = completed()
             response.cabinet_sections = [section(doors='unknown', interior_known=False)]
             response.brief.width_mm = None
-            return response
+            return analysis_result(response, args[1])
         self.dialogue.analyse = unclear
         message = fixtures.FakeMessage('Шкаф', image=True)
         await self.app.receive(message)

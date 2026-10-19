@@ -1,7 +1,7 @@
 import unittest
 
-from bot.construction import clarification_questions
-from contracts.models import Clarification, DialogueResult
+from services.dialogue.src.rules import clarification_questions
+from services.dialogue.src.models import Clarification, DialogueResult
 from tests.test_construction import section
 from tests.test_project import completed
 

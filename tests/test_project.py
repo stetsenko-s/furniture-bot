@@ -1,3 +1,4 @@
+from services.dialogue.src.rules import analysis_result
 import base64
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -6,7 +7,8 @@ import unittest
 from pydantic import ValidationError
 
 from bot.store import Store
-from contracts.models import Brief, Clarification, DialogueResult, ReferenceImage
+from contracts.models import Brief, ReferenceImage
+from services.dialogue.src.models import Clarification, DialogueResult
 
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6VEkAAAAASUVORK5CYII=")
 
@@ -33,7 +35,7 @@ class ProjectTests(unittest.TestCase):
 
     def prepare(self):
         revision = self.input()
-        self.store.save_analysis(10, self.pid, revision, completed())
+        self.store.save_analysis(10, self.pid, revision, analysis_result(completed(), self.store.messages(10, self.pid)))
         return revision
 
     def test_restart_preserves_dialogue_and_image(self):
@@ -86,7 +88,7 @@ class ProjectTests(unittest.TestCase):
         number = self.input()
         self.input("Высота 900", image=None)
         with self.assertRaises(ValueError):
-            self.store.save_analysis(10, self.pid, number, completed())
+            self.store.save_analysis(10, self.pid, number, analysis_result(completed(), self.store.messages(10, self.pid)))
 
     def test_late_image_saved_to_original_approved_version(self):
         number = self.prepare()
@@ -100,19 +102,19 @@ class ProjectTests(unittest.TestCase):
         number = self.input()
         response = completed()
         response.brief.width_mm = None
-        self.store.save_analysis(10, self.pid, number, response)
+        self.store.save_analysis(10, self.pid, number, analysis_result(response, self.store.messages(10, self.pid)))
         with self.assertRaisesRegex(ValueError, "ширина"):
             self.store.approve(10, self.pid, number)
 
     def test_confirmation_requires_sketch_and_resolved_questions(self):
         number = self.input(image=None)
-        self.store.save_analysis(10, self.pid, number, completed())
+        self.store.save_analysis(10, self.pid, number, analysis_result(completed(), self.store.messages(10, self.pid)))
         with self.assertRaisesRegex(ValueError, "эскиз"):
             self.store.approve(10, self.pid, number)
         number = self.input()
         response = completed()
         response.questions = [Clarification(text="Одна или две двери?", topic="doors", section_index=0)]
-        self.store.save_analysis(10, self.pid, number, response)
+        self.store.save_analysis(10, self.pid, number, analysis_result(response, self.store.messages(10, self.pid)))
         with self.assertRaisesRegex(ValueError, "уточнения"):
             self.store.approve(10, self.pid, number)
 

@@ -1,3 +1,6 @@
+> Исторический аудит версии `baseline-before-microservices`, до выделения dialogue.
+> Текущие границы компонентов описаны в [architecture.md](architecture.md).
+
 # Аудит мебельного бота — 19 октября 2026
 
 ## Общая оценка

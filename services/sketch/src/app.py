@@ -114,7 +114,9 @@ def create_app(provider, directory, token):
 
 
 def main():
-    load_env()
+    load_env({'AI_PROVIDER', 'OPENROUTER_API_KEY', 'OPENROUTER_SKETCH_MODEL',
+              'OPENAI_API_KEY', 'SKETCH_MODEL', 'SKETCH_QUALITY', 'SKETCH_SIZE',
+              'SKETCH_SERVICE_TOKEN', 'SKETCH_HOST', 'SKETCH_PORT', 'DATA_DIR'})
     require('SKETCH_SERVICE_TOKEN')
     ai = ai_settings()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")

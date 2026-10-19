@@ -8,7 +8,7 @@ from unittest.mock import patch
 from aiohttp import web
 from aiohttp.test_utils import TestServer
 
-from bot.llm import DialogueClient, DialogueError
+from services.dialogue.src.provider import DialogueClient, DialogueError
 from infrastructure.ai import ai_settings
 from infrastructure.env import load_env
 from services.sketch.src.provider import ImageProvider, ProviderError

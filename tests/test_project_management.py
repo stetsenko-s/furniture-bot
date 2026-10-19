@@ -1,3 +1,4 @@
+from services.dialogue.src.rules import analysis_result
 import asyncio
 import sqlite3
 from pathlib import Path
@@ -69,14 +70,14 @@ class ManagementStoreTests(unittest.TestCase):
         project = self.store.create(10)
         pid = project['id']
         number = self.store.add_input(10, pid, 'Тумба', PNG, 'image/png')
-        self.store.save_analysis(10, pid, number, completed())
+        self.store.save_analysis(10, pid, number, analysis_result(completed(), self.store.messages(10, pid)))
         self.assertEqual(self.store.project(10, pid)['title'], 'Проект №1')
         request_brief = self.store.generation_brief(10, pid, number)
         self.store.rename(10, pid, ' Моя тумба ')
         self.assertEqual(self.store.generation_brief(10, pid, number), request_brief)
         self.assertEqual(self.store.revision(10, pid)['brief'].title, 'Моя тумба')
         number = self.store.add_input(10, pid, 'Добавь полку')
-        self.store.save_analysis(10, pid, number, completed())
+        self.store.save_analysis(10, pid, number, analysis_result(completed(), self.store.messages(10, pid)))
         self.assertEqual(Store(self.temp.name).project(10, pid)['title'], 'Моя тумба')
 
     def test_delete_removes_only_owned_data_and_files(self):
@@ -84,7 +85,7 @@ class ManagementStoreTests(unittest.TestCase):
         other = self.store.create(11)
         pid = project['id']
         number = self.store.add_input(10, pid, 'Тумба', PNG, 'image/png')
-        self.store.save_analysis(10, pid, number, completed())
+        self.store.save_analysis(10, pid, number, analysis_result(completed(), self.store.messages(10, pid)))
         self.store.approve(10, pid, number)
         self.store.save_artifact(10, pid, number, PNG, 'test')
         self.store.add_input(11, other['id'], 'Шкаф', PNG, 'image/png')
@@ -113,7 +114,7 @@ class ManagementStoreTests(unittest.TestCase):
         project = self.store.create(10)
         pid = project['id']
         number = self.store.add_input(10, pid, 'Тумба', PNG, 'image/png')
-        self.store.save_analysis(10, pid, number, completed())
+        self.store.save_analysis(10, pid, number, analysis_result(completed(), self.store.messages(10, pid)))
         self.store.approve(10, pid, number)
         self.store.save_artifact(10, pid, number, PNG, 'test')
         for index in range(25):
@@ -220,7 +221,7 @@ class ManagementBotTests(unittest.IsolatedAsyncioTestCase):
         pid = project['id']
         for i in range(23):
             number = self.store.add_input(10, pid, f'Правка {i}')
-            self.store.save_analysis(10, pid, number, completed())
+            self.store.save_analysis(10, pid, number, analysis_result(completed(), self.store.messages(10, pid)))
             self.store.approve(10, pid, number)
             self.store.save_artifact(10, pid, number, PNG, 'offline-test')
         before = self.store.revision(10, pid)

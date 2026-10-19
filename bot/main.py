@@ -27,9 +27,8 @@ from aiogram.types import (
 
 from contracts.models import MAX_IMAGE_BYTES, ReferenceImage, SketchRequest
 from infrastructure.env import load_env, require, data_dir
-from infrastructure.ai import ai_settings
-from .construction import pending_questions
-from .llm import DialogueClient, DialogueError
+from .readiness import pending_questions
+from .dialogue_client import DialogueClient, DialogueError
 from .sketch_client import SketchClient, SketchError
 from .store import Store
 from .panels import Panels, PanelUnavailable, IN_CALLBACK
@@ -484,12 +483,13 @@ class Application:
 
 
 async def main():
-    load_env()
-    require('FURNITURE_BOT_TOKEN', 'SKETCH_SERVICE_TOKEN')
-    ai = ai_settings()
+    load_env({'FURNITURE_BOT_TOKEN', 'SKETCH_SERVICE_TOKEN', 'SKETCH_SERVICE_URL',
+              'DIALOGUE_SERVICE_TOKEN', 'DIALOGUE_SERVICE_URL', 'DATA_DIR'})
+    require('FURNITURE_BOT_TOKEN', 'SKETCH_SERVICE_TOKEN', 'DIALOGUE_SERVICE_TOKEN')
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     application = Application(Store(data_dir("bot")),
-        DialogueClient(ai.key, ai.dialogue_model, provider=ai.provider),
+        DialogueClient(os.environ.get("DIALOGUE_SERVICE_URL", "http://127.0.0.1:8092"),
+                       os.environ["DIALOGUE_SERVICE_TOKEN"]),
         SketchClient(os.environ.get("SKETCH_SERVICE_URL", "http://127.0.0.1:8091"),
                      os.environ["SKETCH_SERVICE_TOKEN"]))
     async with Bot(os.environ["FURNITURE_BOT_TOKEN"]) as bot:

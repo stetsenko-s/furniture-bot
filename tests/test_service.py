@@ -6,7 +6,7 @@ import unittest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from bot.llm import DialogueClient, DialogueError
+from services.dialogue.src.provider import DialogueClient, DialogueError
 from bot.sketch_client import SketchClient
 from contracts.models import ReferenceImage, SketchRequest
 from services.sketch.src.app import create_app

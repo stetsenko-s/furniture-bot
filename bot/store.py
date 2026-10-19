@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from contracts.models import Brief
-from .construction import clarification_questions, pending_questions
+from .readiness import pending_questions
 
 
 class Store:
@@ -181,7 +181,7 @@ class Store:
         if project["revision"] != number:
             raise ValueError("Версия уже изменилась.")
         brief = result.brief.model_copy(update={'title': project['title']})
-        questions = clarification_questions(result, self.messages(user_id, project_id))
+        questions = list(result.questions)
         # Сохраняем вопросы в контексте: иначе ответы «1. да, 2. нет»
         # следующая модель не сможет надёжно связать с предыдущим экраном.
         displayed = pending_questions({'brief': brief, 'questions': questions},
