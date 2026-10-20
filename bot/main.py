@@ -31,6 +31,8 @@ from .readiness import pending_questions
 from .dialogue_client import DialogueClient, DialogueError
 from .sketch_client import SketchClient, SketchError
 from .store import Store
+from .workflow import Workflow, LABELS
+from .stage_client import StageClient
 from .panels import Panels, PanelUnavailable, IN_CALLBACK
 
 LOG = logging.getLogger(__name__)
@@ -95,9 +97,10 @@ def brief_text(brief):
 
 
 class Application:
-    def __init__(self, store, dialogue, sketch):
+    def __init__(self, store, dialogue, sketch, dimensions=None, render=None):
         self.store, self.dialogue, self.sketch = store, dialogue, sketch
         self.locks = {}
+        self.workflow = Workflow(self, dimensions, render)
         self.panels = Panels(store)
         self.dp = Dispatcher()
         self.dp.message.register(self.command, Command("start", "menu", "help", "new", "project", "retry"))
@@ -117,11 +120,16 @@ class Application:
         await self.panels.show(message, uid, text, markup, image)
 
     def project_markup(self, uid, project, *, ready=False):
+        if self.workflow.active(uid, project['id']):
+            return keyboard(self.workflow.rows(uid, project['id']))
         revision = self.store.revision(uid, project['id'])
         versions = self.store.drawings(uid, project['id'])
-        return project_keyboard(project, ready=ready and not revision['sketch_error'],
-            retry=bool(revision['analysis_error'] or revision['sketch_error']),
-            drawings=bool(versions))
+        markup = project_keyboard(project, ready=ready and not revision['sketch_error'],
+            retry=bool(revision['analysis_error'] or revision['sketch_error']), drawings=bool(versions))
+        actions = self.workflow.sketch_actions(uid, project)
+        if actions:
+            markup.inline_keyboard = keyboard(actions).inline_keyboard + markup.inline_keyboard
+        return markup
 
     def visible(self, uid, pid):
         session = self.store.session(uid)
@@ -150,6 +158,9 @@ class Application:
             self.project_markup(user_id, project))
 
     async def summary(self, message, user_id, project, reply=None):
+        if self.workflow.active(user_id, project['id']):
+            await self.workflow.show(message, user_id, project['id'])
+            return
         revision = self.store.revision(user_id, project["id"])
         has_sketch = bool(self.store.attachments(user_id, project["id"]))
         questions = pending_questions(revision, has_sketch)
@@ -175,10 +186,12 @@ class Application:
             await self.summary(message, user_id, project)
             return
         revision = self.store.revision(user_id, project['id'])
-        brief = revision['brief']
+        brief = self.store.revision(user_id, project['id'], artifact['revision'])['brief']
         text = brief_text(brief) + f"\n\nЭскиз №{artifact['sketch_number']} — чёрно-белый, без размеров.\n" + (
             "Напишите, что изменить, или пришлите дополнительный эскиз. "
-            "Размерные линии и производственная деталировка — следующие этапы.")
+            "Когда результат верен, нажмите «Утвердить эскиз».")
+        if self.workflow.db.state(user_id, project['id'])['approved_sketch'] == project['revision']:
+            text += '\n\nЭскиз утверждён. Проставить размеры?'
         if artifact['revision'] != project['revision']:
             text += '\n\nЭто последний сохранённый чертёж. Новые уточнения ещё не отражены на нём.'
         error = revision['analysis_error'] or revision['sketch_error']
@@ -189,6 +202,9 @@ class Application:
         await self.say(message, user_id, text, self.project_markup(user_id, project), artifact['path'])
 
     async def open_project(self, message, uid, project):
+        if self.workflow.active(uid, project['id']):
+            await self.workflow.show(message, uid, project['id'])
+            return
         versions = self.store.drawings(uid, project['id'])
         latest = next((v for v in versions if v['path']), None)
         if latest:
@@ -258,6 +274,9 @@ class Application:
                 return  # проект удалён во время запроса/ожидания блокировки
 
     async def retry(self, message, uid, pid):
+        if self.workflow.active(uid, pid):
+            await self.workflow.retry(message, uid, pid)
+            return
         revision = self.store.revision(uid, pid)
         if revision['sketch_error']:
             await self.generate(message, uid, pid, revision['number'])
@@ -327,6 +346,9 @@ class Application:
                    if session["project_id"] else self.store.create(uid))
         # Важно: запись в БД ДО ожидания блокировки ИИ. Сообщение не пропадает,
         # даже если в это время создаётся картинка или анализируется прошлый ввод.
+        if self.workflow.active(uid, project['id']):
+            await self.workflow.receive(message, uid, project['id'], text, image, mime)
+            return
         self.store.add_input(uid, project["id"], text, image, mime)
         if self.lock(uid).locked():
             await self.say(message, uid, 'Дополнение сохранено. Учту его после текущей обработки.',
@@ -401,6 +423,8 @@ class Application:
                 await self.say(message, uid, "Эта кнопка относится к другому проекту. "
                           "Сначала выберите его в меню.", keyboard([[("🏠 В меню", "menu")]]))
                 return
+            if await self.workflow.handle(message, uid, pid, action, parts):
+                return
             if action == 'back':
                 if self.store.session(uid)['screen'] in ('history', 'archive', 'rename', 'delete'):
                     await self.open_project(message, uid, project)
@@ -435,9 +459,12 @@ class Application:
                 if page < 0:
                     raise ValueError('Некорректная страница списка чертежей.')
                 self.store.navigate(uid, "history", pid)
-                drawings = self.store.drawings(uid, pid, limit=21, offset=page * 20)
-                rows = [[(f"Эскиз №{v['sketch_number']}",
-                          f"version:{pid}:{v['number']}:{page}")] for v in drawings[:20]]
+                drawings = self.workflow.db.drawings(uid, pid, limit=21, offset=page * 20)
+                rows = []
+                for v in drawings[:20]:
+                    data = (f"version:{pid}:{v['number']}:{page}" if v['stage'] == 'sketch' else
+                            f"stageview:{pid}:{'d' if v['stage'] == 'dimensions' else 'r'}:{v['number']}:{page}")
+                    rows.append([(f"{LABELS[v['stage']]} №{v['ordinal']}", data)])
                 pages = []
                 if page:
                     pages.append(('← Предыдущая страница', f'history:{pid}:{page-1}'))
@@ -484,14 +511,18 @@ class Application:
 
 async def main():
     load_env({'FURNITURE_BOT_TOKEN', 'SKETCH_SERVICE_TOKEN', 'SKETCH_SERVICE_URL',
-              'DIALOGUE_SERVICE_TOKEN', 'DIALOGUE_SERVICE_URL', 'DATA_DIR'})
-    require('FURNITURE_BOT_TOKEN', 'SKETCH_SERVICE_TOKEN', 'DIALOGUE_SERVICE_TOKEN')
+              'DIALOGUE_SERVICE_TOKEN', 'DIALOGUE_SERVICE_URL', 'DATA_DIR',
+              'DIMENSIONS_SERVICE_TOKEN', 'DIMENSIONS_SERVICE_URL', 'RENDER_SERVICE_TOKEN', 'RENDER_SERVICE_URL'})
+    require('FURNITURE_BOT_TOKEN', 'SKETCH_SERVICE_TOKEN', 'DIALOGUE_SERVICE_TOKEN',
+            'DIMENSIONS_SERVICE_TOKEN', 'RENDER_SERVICE_TOKEN')
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     application = Application(Store(data_dir("bot")),
         DialogueClient(os.environ.get("DIALOGUE_SERVICE_URL", "http://127.0.0.1:8092"),
                        os.environ["DIALOGUE_SERVICE_TOKEN"]),
         SketchClient(os.environ.get("SKETCH_SERVICE_URL", "http://127.0.0.1:8091"),
-                     os.environ["SKETCH_SERVICE_TOKEN"]))
+                     os.environ["SKETCH_SERVICE_TOKEN"]),
+        StageClient('dimensions', os.environ.get('DIMENSIONS_SERVICE_URL', 'http://127.0.0.1:8093'), os.environ['DIMENSIONS_SERVICE_TOKEN']),
+        StageClient('render', os.environ.get('RENDER_SERVICE_URL', 'http://127.0.0.1:8094'), os.environ['RENDER_SERVICE_TOKEN']))
     async with Bot(os.environ["FURNITURE_BOT_TOKEN"]) as bot:
         await bot.set_my_commands([
             BotCommand(command="menu", description="Проекты и главное меню"),

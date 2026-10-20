@@ -1,19 +1,23 @@
 # Telegram-бот — интерфейс и управление проектами
 
 Принимает сообщения, показывает кнопки, хранит проекты, переписку, версии и
-результаты. Передаёт заявки по HTTP в dialogue и sketch. Не вызывает LLM
+результаты. Передаёт заявки по HTTP в dialogue, sketch, dimensions и render. Не вызывает LLM
 напрямую и не содержит промптов или правил распознавания мебели.
 
 Запуск из корня: `python run_bot.py`.
 Зависимости: `pip install -r bot/requirements.txt`.
 Нужны `FURNITURE_BOT_TOKEN`, `DIALOGUE_SERVICE_TOKEN`, `SKETCH_SERVICE_TOKEN`.
-Адреса: `DIALOGUE_SERVICE_URL` и `SKETCH_SERVICE_URL`.
+Также нужны `DIMENSIONS_SERVICE_TOKEN` и `RENDER_SERVICE_TOKEN`.
+Адреса задаются соответствующими переменными `*_SERVICE_URL`.
 Ключ OpenRouter/OpenAI самому боту не нужен.
 
 - `main.py` — Telegram-обработчики, навигация и последовательность работы.
 - `store.py` — SQLite, история, файлы, сохранение утверждений и результатов.
 - `dialogue_client.py` — HTTP-клиент анализа заявки.
 - `sketch_client.py` — HTTP-клиент генерации изображения.
+- `stage_client.py` — HTTP-клиент сервисов размеров и рендеринга.
+- `workflow.py` — переходы, вопросы, утверждения и правки на новых этапах.
+- `workflow_store.py` — сохранение версий этапов и общей галереи в базе бота.
 - `readiness.py` — проверка наличия исходных данных перед подтверждением
   (описание, габариты, фотография); распознавание выполняется в dialogue.
 - `panels.py` — карточки Telegram, их редактирование и страницы длинного текста.

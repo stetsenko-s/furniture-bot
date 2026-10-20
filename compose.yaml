@@ -46,6 +46,70 @@ services:
       interval: 15s
       timeout: 6s
       retries: 3
+  dimensions:
+    build:
+      context: .
+      dockerfile: services/dimensions/Dockerfile
+    environment:
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_DIALOGUE_MODEL: ${OPENROUTER_DIALOGUE_MODEL:-openai/gpt-4.1-mini}
+      OPENROUTER_SKETCH_MODEL: ${OPENROUTER_SKETCH_MODEL:-openai/gpt-image-2}
+      DIALOGUE_MODEL: ${DIALOGUE_MODEL:-gpt-4.1-mini}
+      SKETCH_MODEL: ${SKETCH_MODEL:-gpt-image-2}
+      DIMENSIONS_AI_PROVIDER: ${DIMENSIONS_AI_PROVIDER:-}
+      DIMENSIONS_API_KEY: ${DIMENSIONS_API_KEY:-}
+      DIMENSIONS_TEXT_MODEL: ${DIMENSIONS_TEXT_MODEL:-}
+      DIMENSIONS_IMAGE_MODEL: ${DIMENSIONS_IMAGE_MODEL:-}
+      DIMENSIONS_QUALITY: ${DIMENSIONS_QUALITY:-medium}
+      DIMENSIONS_SIZE: ${DIMENSIONS_SIZE:-1536x1024}
+      DIMENSIONS_SERVICE_TOKEN: ${DIMENSIONS_SERVICE_TOKEN:?Run configure.py first}
+      DIMENSIONS_HOST: 0.0.0.0
+      DIMENSIONS_PORT: 8093
+      DATA_DIR: /data
+    ports:
+      - "127.0.0.1:8093:8093"
+    volumes:
+      - dimensions-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8093/health', timeout=5)"]
+      interval: 15s
+      timeout: 6s
+      retries: 3
+  render:
+    build:
+      context: .
+      dockerfile: services/render/Dockerfile
+    environment:
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_DIALOGUE_MODEL: ${OPENROUTER_DIALOGUE_MODEL:-openai/gpt-4.1-mini}
+      OPENROUTER_SKETCH_MODEL: ${OPENROUTER_SKETCH_MODEL:-openai/gpt-image-2}
+      DIALOGUE_MODEL: ${DIALOGUE_MODEL:-gpt-4.1-mini}
+      SKETCH_MODEL: ${SKETCH_MODEL:-gpt-image-2}
+      RENDER_AI_PROVIDER: ${RENDER_AI_PROVIDER:-}
+      RENDER_API_KEY: ${RENDER_API_KEY:-}
+      RENDER_TEXT_MODEL: ${RENDER_TEXT_MODEL:-}
+      RENDER_IMAGE_MODEL: ${RENDER_IMAGE_MODEL:-}
+      RENDER_QUALITY: ${RENDER_QUALITY:-medium}
+      RENDER_SIZE: ${RENDER_SIZE:-1536x1024}
+      RENDER_SERVICE_TOKEN: ${RENDER_SERVICE_TOKEN:?Run configure.py first}
+      RENDER_HOST: 0.0.0.0
+      RENDER_PORT: 8094
+      DATA_DIR: /data
+    ports:
+      - "127.0.0.1:8094:8094"
+    volumes:
+      - render-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8094/health', timeout=5)"]
+      interval: 15s
+      timeout: 6s
+      retries: 3
   bot:
     build:
       context: .
@@ -54,6 +118,10 @@ services:
       FURNITURE_BOT_TOKEN: ${FURNITURE_BOT_TOKEN:?Fill .env first}
       SKETCH_SERVICE_TOKEN: ${SKETCH_SERVICE_TOKEN:?Run configure.py first}
       DIALOGUE_SERVICE_TOKEN: ${DIALOGUE_SERVICE_TOKEN:?Run configure.py first}
+      DIMENSIONS_SERVICE_TOKEN: ${DIMENSIONS_SERVICE_TOKEN:?Run configure.py first}
+      RENDER_SERVICE_TOKEN: ${RENDER_SERVICE_TOKEN:?Run configure.py first}
+      DIMENSIONS_SERVICE_URL: http://dimensions:8093
+      RENDER_SERVICE_URL: http://render:8094
       SKETCH_SERVICE_URL: http://sketch:8091
       DIALOGUE_SERVICE_URL: http://dialogue:8092
       DATA_DIR: /data
@@ -65,6 +133,12 @@ services:
         condition: service_healthy
       sketch:
         condition: service_healthy
+      dimensions:
+        condition: service_healthy
+      render:
+        condition: service_healthy
 volumes:
+  dimensions-data:
+  render-data:
   bot-data:
   sketch-data:

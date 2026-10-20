@@ -156,14 +156,16 @@ class DeploymentTests(unittest.TestCase):
             configure(root)
             self.assertEqual((root / '.env').read_text(encoding='utf-8'), updated)
 
-    def test_fresh_configuration_creates_two_distinct_internal_tokens(self):
+    def test_fresh_configuration_creates_four_distinct_internal_tokens(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             shutil.copyfile(ROOT / '.env.example', root / '.env.example')
             configure(root)
             values = dict(line.split('=', 1) for line in (root / '.env').read_text(encoding='utf-8').splitlines() if '=' in line and not line.startswith('#'))
             self.assertGreater(len(values['DIALOGUE_SERVICE_TOKEN']), 30)
-            self.assertNotEqual(values['DIALOGUE_SERVICE_TOKEN'], values['SKETCH_SERVICE_TOKEN'])
+            tokens = [values[p + '_SERVICE_TOKEN'] for p in ('DIALOGUE', 'SKETCH', 'DIMENSIONS', 'RENDER')]
+            self.assertEqual(len(set(tokens)), 4)
+            self.assertTrue(all(len(token) > 30 for token in tokens))
 
     def test_bot_loads_only_its_own_configuration(self):
         with TemporaryDirectory() as directory:
@@ -176,7 +178,7 @@ class DeploymentTests(unittest.TestCase):
 
     def test_each_docker_source_bundle_imports_without_other_components(self):
         # Execute exactly the source files copied by each Dockerfile, without Docker/AI/network.
-        for component, module in [('bot', 'bot.main'), ('services/dialogue', 'services.dialogue.src.app'), ('services/sketch', 'services.sketch.src.app')]:
+        for component, module in [('bot', 'bot.main'), ('services/dialogue', 'services.dialogue.src.app'), ('services/sketch', 'services.sketch.src.app'), ('services/dimensions', 'services.dimensions.src.app'), ('services/render', 'services.render.src.app')]:
             with self.subTest(component=component), TemporaryDirectory() as directory:
                 bundle = Path(directory)
                 for line in (ROOT / component / 'Dockerfile').read_text(encoding='utf-8').splitlines():

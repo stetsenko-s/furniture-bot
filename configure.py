@@ -10,7 +10,7 @@ def configure(root):
     existing = target.exists()
     text = target.read_text(encoding='utf-8-sig') if existing else (root / '.env.example').read_text(encoding='utf-8')
     original = text
-    for key in ('SKETCH_SERVICE_TOKEN', 'DIALOGUE_SERVICE_TOKEN'):
+    for key in ('SKETCH_SERVICE_TOKEN', 'DIALOGUE_SERVICE_TOKEN', 'DIMENSIONS_SERVICE_TOKEN', 'RENDER_SERVICE_TOKEN'):
         pattern = re.compile(r'^' + key + r'\s*=(.*)$', re.MULTILINE)
         match = pattern.search(text)
         if match and match[1].split(' #', 1)[0].strip().strip('\"\''):

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from contracts.models import Brief
 from .readiness import pending_questions
+from .workflow_store import init_schema
 
 
 class Store:
@@ -48,6 +49,7 @@ class Store:
                     message_id INTEGER NOT NULL, media INTEGER NOT NULL DEFAULT 0,
                     payload TEXT NOT NULL DEFAULT '{}');
             """)
+            init_schema(con)
             columns = {row['name'] for row in con.execute('PRAGMA table_info(projects)')}
             if 'number' not in columns:
                 con.execute('ALTER TABLE projects ADD COLUMN number INTEGER')
@@ -165,6 +167,8 @@ class Store:
                         (project_id, number, "user", text))
             if attachment:
                 con.execute("INSERT INTO attachments VALUES(?,?,?,?,?)", attachment)
+        with self.connect() as con:
+            con.execute("UPDATE workflow_state SET stage='sketch',version=NULL,approved_sketch=NULL WHERE project_id=?", (project_id,))
         self.navigate(user_id, "intake", project_id)
         return number
 
@@ -289,7 +293,7 @@ class Store:
             if folder.exists():
                 shutil.rmtree(folder)
         with self.connect() as con:
-            for table in ('revisions', 'messages', 'attachments', 'artifacts'):
+            for table in ('revisions', 'messages', 'attachments', 'artifacts', 'workflow_state', 'workflow_versions', 'workflow_messages'):
                 con.execute(f'DELETE FROM {table} WHERE project_id=?', (project_id,))
             con.execute('DELETE FROM projects WHERE id=? AND user_id=?', (project_id, user_id))
             con.execute("UPDATE sessions SET project_id=NULL,screen='menu' WHERE user_id=? AND project_id=?", (user_id, project_id))

@@ -1,3 +1,5 @@
 -r bot/requirements.txt
 -r services/dialogue/requirements.txt
 -r services/sketch/requirements.txt
+-r services/dimensions/requirements.txt
+-r services/render/requirements.txt

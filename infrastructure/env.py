@@ -42,3 +42,6 @@ def require(*keys):
 
 def data_dir(component):
     return Path(os.environ.get("DATA_DIR", str(ROOT / "data"))) / component
+
+KEYS.update(prefix + '_' + name for prefix in ('DIMENSIONS', 'RENDER')
+            for name in ('AI_PROVIDER','API_KEY','TEXT_MODEL','IMAGE_MODEL','QUALITY','SIZE','SERVICE_TOKEN','SERVICE_URL','HOST','PORT'))
