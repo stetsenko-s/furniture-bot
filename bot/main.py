@@ -227,6 +227,13 @@ class Application:
                 await self.menu(message, uid)
                 return
             if command == "/retry":
+                # Явный повтор открывает актуальный этап даже из архива/меню.
+                # Иначе visible() скрывает и прогресс, и готовый ответ.
+                self.store.navigate(uid, 'review', session['project_id'])
+                self.store.forget_control(uid)
+                if self.lock(uid).locked():
+                    await self.say(message, uid, 'Обработка уже идёт. Дождитесь результата; повторный запрос не запускаю.')
+                    return
                 await self.retry(message, uid, session['project_id'])
             else:
                 await self.summary(message, uid, self.store.project(uid, session["project_id"]))
