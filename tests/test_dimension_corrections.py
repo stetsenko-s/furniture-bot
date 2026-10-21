@@ -46,6 +46,7 @@ class DimensionCorrectionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_silent_omission_or_fake_denial_does_not_erase_dimensions(self):
         previous = self.fixture()
+        previous.dimensions[-1].value_mm = 300
         value = previous.model_copy(deep=True)
         value.dimensions = value.dimensions[:3]
         for removals in ([], [{'id': 'top_compartment', 'source_quote': 'Нет отделения'}],
@@ -53,7 +54,7 @@ class DimensionCorrectionTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(removals=removals):
                 result = checked_plan(raw(value, removals), analysis(previous=previous, text='150 мм'))
                 self.assertIn('top_compartment', {d.id for d in result.dimensions})
-                self.assertTrue(result.questions)
+                self.assertEqual(bool(result.questions), bool(removals))
 
     async def test_overall_cannot_be_removed_by_internal_correction(self):
         previous = plan()

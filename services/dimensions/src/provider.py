@@ -2,7 +2,7 @@
 from pathlib import Path
 from contracts.workflow import StagePlan, Dimension
 from .models import DimensionsAnalysis
-from .evidence import numeric_quote, rejection_quote, numbered_answers
+from .evidence import numeric_quote, rejection_quote, rejected_dimensions, analysis_context, is_quantity, normalize
 
 PROMPTS = Path(__file__).resolve().parents[1] / 'prompts'
 AXES = {'width': 'ширина', 'height': 'высота', 'depth': 'глубина',
@@ -14,17 +14,26 @@ def checked_plan(plan, request):
     plan = StagePlan.model_validate(plan.model_dump(exclude={'removed_dimensions'}))
     questions = list(plan.questions)
     previous = {d.id: d for d in request.plan.dimensions} if request.plan else {}
-    removed = set()
+    removed = set(rejected_dimensions(request))
     for removal in removals:
         if removal.id in previous and not removal.id.startswith('overall_'):
             if rejection_quote(removal.source_quote, request.messages):
                 removed.add(removal.id)
             else:
                 questions.append(f'Подтвердите, нужно ли исключить размер «{previous[removal.id].target}»: не найдено вашего указания об этом.')
+    denied_targets = {normalize(previous[ident].target) for ident in removed}
+    for item in plan.dimensions:
+        if is_quantity(item) or normalize(item.target) in denied_targets:
+            removed.add(item.id)
     plan.dimensions = [d for d in plan.dimensions if d.id not in removed]
     present = {d.id for d in plan.dimensions}
+    supplied = {(normalize(d.target), d.axis, d.value_mm) for d in plan.dimensions}
     for ident, old in previous.items():
-        if ident not in present and ident not in removed:
+        # Ответ агента — полный пересобранный план, а не набор изменений.
+        # Восстанавливаем только подтверждённые числа; прежние неизвестные
+        # пункты могли быть ошибочными догадками или дубликатами другого размера.
+        if (ident not in present and ident not in removed and old.value_mm is not None and not is_quantity(old)
+                and (normalize(old.target), old.axis, old.value_mm) not in supplied):
             plan.dimensions.append(old.model_copy(deep=True))
     found = set()
     for item in plan.dimensions:
@@ -47,7 +56,7 @@ def checked_plan(plan, request):
             questions.append(f'Укажите размер «{item.target}» в миллиметрах.')
     # Агент может скопировать прежний программный вопрос. Удаляем только
     # известные шаблоны для уже отвеченных или явно исключённых пунктов.
-    resolved = removed | {d.id for d in plan.dimensions if d.value_mm is not None}
+    resolved = removed | {d.id for d in plan.dimensions if d.value_mm is not None} | (previous.keys() - {d.id for d in plan.dimensions})
     stale_questions = set()
     for old in list(previous.values()) + plan.dimensions:
         if old.id in resolved:
@@ -99,9 +108,7 @@ class DimensionsProvider:
         self.image_prompt = (PROMPTS / 'image.md').read_text(encoding='utf-8')
 
     async def analyse(self, request):
-        data = request.model_dump(exclude={'references'})
-        data['messages'] = data['messages'][-80:]
-        data['numbered_answers'] = numbered_answers(request.messages)
+        data = analysis_context(request)
         plan = await self.ai.analyse(self.analysis_prompt, data, request.references, DimensionsAnalysis)
         return checked_plan(plan, request)
 
