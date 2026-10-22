@@ -23,6 +23,9 @@ class RenderProvider:
             if [(d.id, d.target, d.axis, d.value_mm) for d in plan.dimensions] != [(d.id, d.target, d.axis, d.value_mm) for d in original.dimensions]:
                 plan.questions.append('Для изменения размеров вернитесь на этап размеров.')
             plan.dimensions = original.model_copy(deep=True).dimensions
+            plan.drawing = original.model_copy(deep=True).drawing
+            plan.drawing_locked = original.drawing_locked
+            plan.cabinet = original.cabinet.model_copy(deep=True) if original.cabinet else None
             plan.inventory_complete = original.inventory_complete
         for axis in ('width_mm', 'height_mm', 'depth_mm'):
             if getattr(plan.brief, axis) != getattr(request.brief, axis):

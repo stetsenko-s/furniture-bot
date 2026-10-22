@@ -21,6 +21,7 @@ from services.dimensions.src.provider import DimensionsProvider, checked_plan
 from services.render.src.provider import RenderProvider
 from tests.test_bot import FakeMessage, FakeDialogue, FakeSketch, callback
 from tests.test_project import PNG, completed
+from tests.drawing_fixture import simple_drawing
 
 
 def reference():
@@ -34,8 +35,10 @@ def plan():
             for axis in ('width', 'height', 'depth')]
     dims.append(Dimension(id='shelf_width', target='Полка слева', axis='width',
                           value_mm=400, source_quote='Ширина полки 400 мм'))
-    return StagePlan(brief=brief, dimensions=dims, inventory_complete=True,
+    result = StagePlan(brief=brief, dimensions=dims, inventory_complete=True,
                      needs_sketch_changes=False, questions=[], reply='Данные согласованы.')
+    result.drawing = simple_drawing(result)
+    return result
 
 
 def analysis(stage='dimensions', previous=None, text='Ширина полки 400 мм'):
@@ -141,6 +144,19 @@ class Provider:
 
 
 class ServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_provider_failure_reason_is_safe_and_specific(self):
+        for code, expected in [('credits', 'средств'), ('incomplete', 'оборвался'),
+                               ('invalid_model_response', 'формате'), ('provider_failed', 'не уточнена')]:
+            async def fail(request):
+                raise AIError('PRIVATE KEY AND PROMPT', code)
+            self.provider.analyse = fail
+            with self.subTest(code=code), self.assertRaises(StageError) as caught:
+                await self.client.analyse(analysis())
+            self.assertIn(expected, str(caught.exception))
+            self.assertNotIn('PRIVATE', str(caught.exception))
+            if code != 'credits':
+                self.assertNotIn('баланс', str(caught.exception))
+
     async def asyncSetUp(self):
         self.temp = TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -351,6 +367,28 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
                      lambda: self.db.drawings(11, self.pid)):
             with self.assertRaises(LookupError):
                 call()
+
+    async def test_rebuild_legacy_drawing_keeps_image_and_history(self):
+        n = await self.dimensions()
+        await self.click('wfgen', 'd', n)
+        old = self.db.version(10, self.pid)
+        legacy = old['plan'].model_copy(deep=True)
+        legacy.drawing = None
+        with self.store.connect() as con:
+            con.execute('UPDATE workflow_versions SET plan=? WHERE project_id=? AND stage=? AND number=?',
+                        (legacy.model_dump_json(), self.pid, 'dimensions', n))
+        messages_before = self.db.messages(10, self.pid, old)
+        self.assertTrue(self.db.upgrade_drawing(10, self.pid))
+        new = self.db.version(10, self.pid)
+        self.assertGreater(new['number'], n)
+        self.assertIsNone(new['path'])
+        self.assertIsNone(new['request_json'])
+        self.assertFalse(new['analysed'])
+        self.assertEqual(new['plan'].dimensions, legacy.dimensions)
+        self.assertEqual(self.db.messages(10, self.pid, new), messages_before)
+        self.assertEqual(self.db.version(10, self.pid, 'dimensions', n)['path'], old['path'])
+        self.assertTrue(Path(old['path']).is_file())
+        self.assertFalse(self.db.upgrade_drawing(10, self.pid))
 
     async def test_retry_after_service_failure_and_cross_stage_callback(self):
         n = await self.dimensions()

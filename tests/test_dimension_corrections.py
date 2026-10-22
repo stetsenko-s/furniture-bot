@@ -15,6 +15,7 @@ def raw(value, removals=()):
 class DimensionCorrectionTests(unittest.IsolatedAsyncioTestCase):
     def fixture(self):
         previous = plan()
+        previous.drawing = None  # Saved pre-geometry project; numbers are still editable.
         item = previous.dimensions[-1]
         item.id = 'top_compartment'
         item.target = 'высота верхнего отделения левой секции'
@@ -32,7 +33,8 @@ class DimensionCorrectionTests(unittest.IsolatedAsyncioTestCase):
         result = checked_plan(raw(value, [{'id': 'top_compartment', 'source_quote': 'Нет верхнего отделения, там только полка'}]), request)
         self.assertNotIn('top_compartment', {d.id for d in result.dimensions})
         self.assertEqual(result.questions, [])
-        DimensionsProvider.validate_generation(result)
+        with self.assertRaisesRegex(ValueError, 'схемы'):
+            DimensionsProvider.validate_generation(result)
         # Следующий ход не возвращает исчезнувший пункт из предыдущего плана.
         again = checked_plan(raw(result), analysis(previous=result, text='Далее'))
         self.assertEqual(again.dimensions, result.dimensions)
@@ -77,7 +79,8 @@ class DimensionCorrectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.dimensions[-1].value_mm, 150)
         self.assertEqual(result.dimensions[-1].axis, 'offset')
         self.assertEqual(result.questions, [])
-        DimensionsProvider.validate_generation(result)
+        with self.assertRaisesRegex(ValueError, 'схемы'):
+            DimensionsProvider.validate_generation(result)
 
     async def test_invented_calculation_is_not_accepted_as_user_quote(self):
         value = plan()
@@ -126,7 +129,8 @@ class DimensionCorrectionTests(unittest.IsolatedAsyncioTestCase):
                 observed.update(schema=schema, data=data)
                 return result
         answer = await DimensionsProvider(AI()).analyse(analysis(previous=previous, text='Нет отделения'))
-        self.assertIs(observed['schema'], DimensionsAnalysis)
+        from services.dimensions.src.models import CabinetAnalysis
+        self.assertIs(observed['schema'], CabinetAnalysis)
         self.assertIn('numbered_answers', observed['data'])
         self.assertNotIn('removed_dimensions', answer.model_dump())
 

@@ -1,7 +1,13 @@
 """Уточнение и нанесение размеров. Не меняет состав утверждённого изделия."""
 from pathlib import Path
+import asyncio
+import base64
+from contracts.models import ReferenceImage
 from contracts.workflow import StagePlan, Dimension
-from .models import DimensionsAnalysis
+from infrastructure.stage_ai import AIError
+from .geometry import calculate, compile_scene, preserve_structure, GeometryError
+from .cabinet import build as build_cabinet, MissingConstruction, construction_key, dimension_references
+from .models import CabinetAnalysis
 from .evidence import numeric_quote, rejection_quote, rejected_dimensions, analysis_context, is_quantity, normalize
 
 PROMPTS = Path(__file__).resolve().parents[1] / 'prompts'
@@ -12,6 +18,12 @@ AXES = {'width': 'ширина', 'height': 'высота', 'depth': 'глуби�
 def checked_plan(plan, request):
     removals = getattr(plan, 'removed_dimensions', [])
     plan = StagePlan.model_validate(plan.model_dump(exclude={'removed_dimensions'}))
+    if plan.cabinet is None:
+        preserve_structure(plan, request.plan)
+    else:
+        plan.drawing_locked = bool(request.plan and request.plan.drawing_locked)
+        if plan.drawing_locked and request.plan.drawing is not None:
+            plan.drawing = request.plan.drawing.model_copy(deep=True)
     questions = list(plan.questions)
     previous = {d.id: d for d in request.plan.dimensions} if request.plan else {}
     removed = set(rejected_dimensions(request))
@@ -22,6 +34,10 @@ def checked_plan(plan, request):
             else:
                 questions.append(f'Подтвердите, нужно ли исключить размер «{previous[removal.id].target}»: не найдено вашего указания об этом.')
     denied_targets = {normalize(previous[ident].target) for ident in removed}
+    if plan.cabinet is not None:
+        referenced = dimension_references(plan.cabinet)
+        # Do not ask about invented unknown dimensions outside the actual scheme.
+        removed.update(d.id for d in plan.dimensions if d.value_mm is None and d.id not in referenced)
     for item in plan.dimensions:
         if is_quantity(item) or normalize(item.target) in denied_targets:
             removed.add(item.id)
@@ -50,9 +66,19 @@ def checked_plan(plan, request):
             axis = item.id.removeprefix('overall_')
             trusted = trusted or (item.axis == axis and item.value_mm == getattr(request.brief, axis + '_mm'))
         evidenced = numeric_quote(item.value_mm, item.source_quote, request.messages)
-        if item.value_mm is not None and not (trusted or evidenced):
+        if item.formula is not None:
             item.value_mm = None
-        if item.value_mm is None:
+            item.source_quote = None
+        elif item.value_mm is not None and not (trusted or evidenced):
+            item.value_mm = None
+    try:
+        values = calculate(plan.dimensions)
+        for item in plan.dimensions:
+            item.value_mm = values[item.id]
+    except GeometryError as exc:
+        questions.append(str(exc))
+    for item in plan.dimensions:
+        if item.value_mm is None and item.formula is None:
             questions.append(f'Укажите размер «{item.target}» в миллиметрах.')
     # Агент может скопировать прежний программный вопрос. Удаляем только
     # известные шаблоны для уже отвеченных или явно исключённых пунктов.
@@ -105,12 +131,55 @@ class DimensionsProvider:
     def __init__(self, ai):
         self.ai = ai
         self.analysis_prompt = (PROMPTS / 'analysis.md').read_text(encoding='utf-8')
-        self.image_prompt = (PROMPTS / 'image.md').read_text(encoding='utf-8')
+        self.analysis_prompt += '\n\n' + (PROMPTS / 'cabinet.md').read_text(encoding='utf-8')
 
     async def analyse(self, request):
         data = analysis_context(request)
-        plan = await self.ai.analyse(self.analysis_prompt, data, request.references, DimensionsAnalysis)
-        return checked_plan(plan, request)
+        for attempt in range(2):
+            raw = await self.ai.analyse(self.analysis_prompt, data, request.references, CabinetAnalysis)
+            plan = checked_plan(raw, request)
+            if (request.plan and request.plan.drawing_locked and request.plan.cabinet is not None
+                    and construction_key(plan.cabinet) != construction_key(request.plan.cabinet)):
+                plan.cabinet = request.plan.cabinet.model_copy(deep=True)
+                plan.drawing = request.plan.drawing.model_copy(deep=True)
+                plan.drawing_locked = True
+                plan.needs_sketch_changes = True
+                plan.questions.append('Изменяется устройство шкафа. Вернитесь к эскизу и утвердите новую конструкцию.')
+            if plan.questions:
+                plan.reply = 'Данные сохранены. Для построения согласованных видов нужно уточнить вопросы ниже.'
+                return plan
+            try:
+                if plan.cabinet is not None:
+                    plan.drawing, plan.dimensions = build_cabinet(plan)
+                    preserve_structure(plan, request.plan)
+                    if plan.needs_sketch_changes:
+                        return plan
+                elif plan.drawing is None:
+                    raise MissingConstruction('Для размерного листа нужна схема прямоугольного шкафа с секциями. Опишите его секции; сложные и наклонные конструкции пока не поддерживаются.')
+                compile_scene(plan)
+                plan.drawing_locked = True
+            except MissingConstruction as exc:
+                if request.plan and request.plan.drawing_locked:
+                    plan.drawing = request.plan.drawing.model_copy(deep=True)
+                    plan.drawing_locked = True
+                else:
+                    plan.drawing = None
+                    plan.drawing_locked = False
+                plan.questions = [str(exc)]
+                plan.reply = 'Размеры сохранены. Уточним устройство шкафа, чтобы рассчитать детали без догадок.'
+                return plan
+            except GeometryError as exc:
+                if attempt:
+                    raise AIError('Модель дважды вернула некорректную геометрию', 'invalid_geometry') from exc
+                # Repair model-generated coordinates, not the customer's numbers.
+                # The first candidate was never approved, so it is not a new baseline.
+                data['geometry_feedback'] = str(exc)
+                data['rejected_candidate'] = plan.model_dump()
+                data['rejected_candidate']['drawing'] = None
+                data['rejected_candidate']['dimensions'] = [d.model_dump() for d in plan.dimensions if d.formula is None]
+                continue
+            plan.reply = 'Схема и размеры проверены. Проверьте состав деталей; все виды будут построены из одной схемы.'
+            return plan
 
     @staticmethod
     def validate_generation(plan):
@@ -124,7 +193,12 @@ class DimensionsProvider:
             item = next((d for d in plan.dimensions if d.id == 'overall_' + axis and d.axis == axis), None)
             if item is None or item.value_mm != getattr(plan.brief, axis + '_mm'):
                 raise ValueError('Габариты не согласованы')
+        compile_scene(plan)
 
     async def generate(self, request):
         self.validate_generation(request.plan)
-        return await self.ai.image(self.image_prompt, request.plan, request.references)
+        # Never send an approved construction back to an image generator.
+        from .drawing import render_png, MODEL
+        compile_scene(request.plan)
+        data = await asyncio.to_thread(render_png, request.plan)
+        return ReferenceImage(mime_type='image/png', data_base64=base64.b64encode(data).decode()), MODEL

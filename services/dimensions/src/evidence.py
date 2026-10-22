@@ -26,7 +26,7 @@ def rejection_quote(quote, messages):
     # эту привязку даёт агент, а здесь отсекаем выдуманные и числовые «отрицания».
     return user_quote(quote, messages) and bool(re.search(
         r'\bнет\b|\bтолько\b|\bне\s+(?:было|нуж|предусмотр|существ|отдел)|'
-        r'\b(?:отсутств|лишн|ошиб|убер|удал|исключ)', normalize(quote)))
+        r'\b(?:отсутств|лишн|ошиб|убер|удал|исключ|дубликат)', normalize(quote)))
 
 
 def numbered_answers(messages):
@@ -112,7 +112,26 @@ def analysis_context(request):
                                  for d in request.plan.dimensions if d.id in denied] if request.plan else []
     if request.plan:
         clean = request.plan.model_copy(deep=True)
-        clean.dimensions = [d for d in clean.dimensions if d.value_mm is not None
+        referenced = set()
+        def collect(value):
+            if isinstance(value, dict):
+                if isinstance(value.get('dimension'), str):
+                    referenced.add(value['dimension'])
+                for key, child in value.items():
+                    if key.endswith('_dimension') and isinstance(child, str):
+                        referenced.add(child)
+                for child in value.values():
+                    collect(child)
+            elif isinstance(value, list):
+                for child in value:
+                    collect(child)
+        if clean.drawing is not None:
+            collect(clean.drawing.model_dump())
+            for item in clean.dimensions:
+                collect(item.model_dump().get('formula'))
+        if clean.cabinet is not None:
+            collect(clean.cabinet.model_dump())
+        clean.dimensions = [d for d in clean.dimensions if (d.value_mm is not None or d.id in referenced)
                             and not is_quantity(d) and d.id not in denied]
         clean.brief.description = request.brief.description
         clean.questions = []
@@ -120,4 +139,9 @@ def analysis_context(request):
         clean.inventory_complete = False
         clean.needs_sketch_changes = False
         data['plan'] = clean.model_dump()
+        if clean.cabinet is not None:
+            # Coordinates and calculated widths are output of the compiler,
+            # not facts the language model needs to reproduce on every turn.
+            data['plan']['drawing'] = None
+            data['plan']['dimensions'] = [d.model_dump() for d in clean.dimensions if d.formula is None]
     return data

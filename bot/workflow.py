@@ -33,7 +33,10 @@ class Workflow:
         stage, number = v['stage'], v['number']
         code = 'd' if stage == 'dimensions' else 'r'
         rows = []
-        if v['path']:
+        legacy = stage == 'dimensions' and v['plan'] and v['plan'].drawing is None and v['plan'].cabinet is None
+        if legacy:
+            rows.append([('Перестроить чертёж', f'wfretry:{pid}:{code}:{number}')])
+        elif v['path']:
             if not v['approved']:
                 rows.append([('Утвердить размеры' if stage == 'dimensions' else 'Утвердить рендер', f'wfapprove:{pid}:{code}:{number}')])
             elif stage == 'dimensions':
@@ -58,7 +61,13 @@ class Workflow:
             brief = plan.brief.model_copy(update={'title': project['title']})
             text += brief_text(brief) + '\n\n' + plan.reply
             if v['stage'] == 'dimensions':
-                text += '\n\nРазмеры в мм:\n' + '\n'.join(f"• {d.target} ({AXES[d.axis]}): {d.value_mm:g}" if d.value_mm is not None else f'• {d.target}: нужно уточнить' for d in plan.dimensions)
+                if plan.drawing:
+                    text += '\n\nСостав схемы:\n' + '\n'.join('• ' + p.label for p in plan.drawing.parts)
+                elif plan.cabinet:
+                    text += '\n\nСостав схемы:\n' + '\n'.join(
+                        s.label + ': ' + ', '.join([e.label for e in s.elements] + ([s.door.label] if s.door else ['без двери']))
+                        for s in plan.cabinet.sections)
+                text += '\n\nРазмеры в мм:\n' + '\n'.join((f"• {d.target} ({AXES[d.axis]}): {d.value_mm:g}" + (' — рассчитано' if d.formula else '')) if d.value_mm is not None else f'• {d.target}: нужно уточнить исходные данные' for d in plan.dimensions)
             if not v['analysed']:
                 text += '\n\nДополнение сохранено; обработка ещё не завершена.'
             elif plan.questions:
@@ -74,7 +83,10 @@ class Workflow:
             else:
                 text += 'Проверьте изображение, напишите правки или утвердите результат.'
             if v['stage'] == 'dimensions':
-                text += '\nПроверьте подписи и соответствие размеров списку: изображение создаётся нейросетью.'
+                if v['model'] == 'orthogonal-drawing-v1':
+                    text += '\nВиды и подписи построены из общей схемы. Проверьте, верно ли распознана конструкция. Крепёж и производственная деталировка не рассчитаны.'
+                else:
+                    text += '\nЭто прежний результат генерации. Нажмите «Перестроить чертёж», чтобы построить согласованные виды из схемы деталей.'
         if v['error']:
             text += '\n\n' + v['error']
         self.app.store.navigate(uid, 'result' if v['path'] else 'review', pid)
@@ -137,6 +149,7 @@ class Workflow:
                 return
 
     async def retry(self, message, uid, pid):
+        self.db.upgrade_drawing(uid, pid)
         v = self.db.version(uid, pid)
         if v['request_json'] and not v['path']:
             await self.generate(message, uid, pid, v['number'])

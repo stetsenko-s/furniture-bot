@@ -198,6 +198,20 @@ class WorkflowStore:
                         (pid, version['stage'], version['number']))
         return True
 
+    def upgrade_drawing(self, uid, pid):
+        """Old generated images remain in the gallery; a new draft gets geometry."""
+        old = self.version(uid, pid)
+        if (old['stage'] != 'dimensions' or not old['plan'] or old['plan'].drawing is not None
+                or not (old['path'] or old['request_json'])):
+            return False
+        with self.store.connect() as con:
+            con.execute('BEGIN IMMEDIATE')
+            number = con.execute('SELECT COALESCE(MAX(number),0)+1 FROM workflow_versions WHERE project_id=? AND stage=?', (pid, 'dimensions')).fetchone()[0]
+            con.execute('INSERT INTO workflow_versions(project_id,stage,number,source_stage,source_number,base_brief,plan) VALUES(?,?,?,?,?,?,?)',
+                        (pid, 'dimensions', number, old['source_stage'], old['source_number'], old['base_brief'].model_dump_json(), old['plan'].model_dump_json()))
+            con.execute('UPDATE workflow_state SET version=? WHERE project_id=?', (number, pid))
+        return True
+
     def approve(self, uid, pid, stage, number):
         if not self.current(uid, pid, stage, number):
             raise ValueError('Утвердить можно только текущий результат.')

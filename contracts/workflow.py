@@ -2,6 +2,8 @@
 from typing import Literal
 from pydantic import Field
 from .models import Contract, Brief, ConversationMessage, ReferenceImage, SketchResponse
+from .drawing import Drawing, Term
+from .cabinet import Cabinet
 
 Stage = Literal['dimensions', 'render']
 
@@ -12,6 +14,7 @@ class Dimension(Contract):
     axis: Literal['width', 'height', 'depth', 'gap', 'offset', 'thickness']
     value_mm: float | None = Field(gt=0)
     source_quote: str | None = Field(max_length=1500)
+    formula: list[Term] | None = Field(default=None, min_length=1, max_length=12)
 
 
 class StagePlan(Contract):
@@ -21,6 +24,9 @@ class StagePlan(Contract):
     needs_sketch_changes: bool
     questions: list[str] = Field(max_length=150)
     reply: str = Field(min_length=1, max_length=3000)
+    drawing: Drawing | None = None
+    drawing_locked: bool = False
+    cabinet: Cabinet | None = None
 
 
 class StageAnalysisRequest(Contract):

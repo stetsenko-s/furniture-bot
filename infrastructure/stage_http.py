@@ -42,8 +42,8 @@ def create_stage_app(stage, provider, directory, token):
             return web.json_response({'error': 'invalid_request'}, status=422)
         try:
             plan = await provider.analyse(payload)
-        except AIError:
-            return web.json_response({'error': 'provider_failed'}, status=502)
+        except AIError as exc:
+            return web.json_response({'error': exc.code}, status=502)
         return web.json_response(StageAnalysisResponse(stage=stage, plan=plan).model_dump())
 
     async def generate(request):
@@ -84,9 +84,9 @@ def create_stage_app(stage, provider, directory, token):
                 path.write_bytes(base64.b64decode(image.data_base64))
                 with closing(sqlite3.connect(db)) as con, con:
                     con.execute("UPDATE requests SET state='complete',path=?,model=? WHERE id=?", (str(path), model, payload.request_id))
-            except AIError:
+            except AIError as exc:
                 fail()
-                return web.json_response({'error': 'provider_failed'}, status=502)
+                return web.json_response({'error': exc.code}, status=502)
             except BaseException:
                 fail()
                 raise
