@@ -5,7 +5,7 @@ from tests.test_workflow import reference
 from contracts.workflow import StageAnalysisRequest
 from services.dimensions.src.models import DimensionsAnalysis
 from services.dimensions.src.provider import DimensionsProvider
-from services.dimensions.src.cabinet import build, MissingConstruction
+from services.dimensions.src.cabinet import build, MissingConstruction, UnlinkedDimensions
 from services.dimensions.src.geometry import compile_scene
 from services.dimensions.src.evidence import analysis_context
 from services.dimensions.src.models import CabinetAnalysis
@@ -18,7 +18,7 @@ class CabinetGeometryTests(unittest.TestCase):
         plan = semantic_cabinet()
         plan.dimensions.append(Dimension(id='unused_gap', target='Расстояние между полками',
                                         axis='gap', value_mm=300, source_quote='между полками 300 мм'))
-        with self.assertRaisesRegex(MissingConstruction, '300 мм'):
+        with self.assertRaisesRegex(UnlinkedDimensions, '300 мм'):
             build(plan)
 
     def test_wire_schema_cannot_request_model_coordinates_or_formulas(self):

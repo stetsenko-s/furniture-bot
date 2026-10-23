@@ -13,6 +13,18 @@ class MissingConstruction(GeometryError):
     pass
 
 
+def legacy_unlinked_question(item):
+    return f'Ранее вы указали «{item.target}»: {item.value_mm:g} мм. Уточните, к какому элементу и расстоянию относится это значение; оно ещё не связано с текущей схемой. Если это дубликат или отменённый размер, укажите это.'
+
+
+class UnlinkedDimensions(GeometryError):
+    """A model bookkeeping error; the user's measurements are already known."""
+    def __init__(self, items):
+        self.items = [d.model_dump() for d in items]
+        super().__init__('Свяжи сохранённые размеры со схемой: ' + ', '.join(
+            f'{d.id}: {d.target} = {d.value_mm:g} мм' for d in items))
+
+
 def construction_key(cabinet):
     def clean(value):
         if isinstance(value, dict):
@@ -109,8 +121,7 @@ def build(plan):
     referenced = dimension_references(cabinet)
     unused = [d for d in plan.dimensions if d.formula is None and d.value_mm is not None and d.id not in referenced]
     if unused:
-        item = unused[0]
-        raise MissingConstruction(f'Ранее вы указали «{item.target}»: {item.value_mm:g} мм. Уточните, к какому элементу и расстоянию относится это значение; оно ещё не связано с текущей схемой. Если это дубликат или отменённый размер, укажите это.')
+        raise UnlinkedDimensions(unused)
     widths = [require(s.width_dimension, f'Какова ширина секции «{s.label}»?') for s in cabinet.sections]
     total = sum(expression(w, values) for w in widths)
     t = expression(T, values)
@@ -151,7 +162,7 @@ def build(plan):
         if i < len(widths)-1:
             part('divider_' + section.id, 'Перегородка после ' + section.label, 'divider',
                  pt(divider_left, T), pt(divider_right, inner_top, D))
-        previous_top = None
+        previous_top = previous_bottom = None
         for element in section.elements:
             if element.kind != 'drawer_front' and element.height_dimension is not None:
                 raise GeometryError('Высоту фасада можно задавать только ящику; полке нужна толщина панели, а промежуток задаётся offset_dimension.')
@@ -168,11 +179,14 @@ def build(plan):
                 anchor, bottom = T, combine(T, offset)
             elif element.position_reference == 'previous_top' and previous_top is not None:
                 anchor, bottom = previous_top, combine(previous_top, offset)
+            elif element.position_reference == 'previous_bottom' and previous_bottom is not None:
+                anchor, bottom = previous_bottom, combine(previous_bottom, offset)
             elif element.position_reference == 'top':
                 anchor, bottom = H, combine(H, neg(offset), neg(height))
             else:
                 raise MissingConstruction(f'Где расположен элемент «{element.label}»: от какого края или соседнего элемента измерено расстояние?')
             top = combine(bottom, height)
+            previous_bottom = bottom
             previous_top = top
             if element.width_mode == 'opening':
                 lowx, highx = left, right

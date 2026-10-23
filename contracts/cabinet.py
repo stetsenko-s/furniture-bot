@@ -11,7 +11,7 @@ class CabinetElement(Contract):
     width_mode: Literal['opening', 'dimension'] | None
     width_dimension: str | None
     alignment: Literal['left', 'center', 'right'] | None
-    position_reference: Literal['floor', 'top', 'inner_bottom', 'previous_top'] | None
+    position_reference: Literal['floor', 'top', 'inner_bottom', 'previous_top', 'previous_bottom'] | None
     offset_dimension: str | None
     height_dimension: str | None
     depth_dimension: str | None

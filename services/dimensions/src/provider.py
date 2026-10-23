@@ -6,8 +6,9 @@ from contracts.models import ReferenceImage
 from contracts.workflow import StagePlan, Dimension
 from infrastructure.stage_ai import AIError
 from .geometry import calculate, compile_scene, preserve_structure, GeometryError
-from .cabinet import build as build_cabinet, MissingConstruction, construction_key, dimension_references
-from .models import CabinetAnalysis
+from .cabinet import build as build_cabinet, MissingConstruction, UnlinkedDimensions, construction_key, dimension_references, legacy_unlinked_question
+from .reconciliation import merge_aliases, merge_position_duplicates, apply_links
+from .models import CabinetAnalysis, DimensionLinkRepair
 from .evidence import numeric_quote, rejection_quote, rejected_dimensions, analysis_context, is_quantity, normalize
 
 PROMPTS = Path(__file__).resolve().parents[1] / 'prompts'
@@ -17,7 +18,8 @@ AXES = {'width': 'ширина', 'height': 'высота', 'depth': 'глуби�
 
 def checked_plan(plan, request):
     removals = getattr(plan, 'removed_dimensions', [])
-    plan = StagePlan.model_validate(plan.model_dump(exclude={'removed_dimensions'}))
+    aliases = getattr(plan, 'dimension_aliases', [])
+    plan = StagePlan.model_validate(plan.model_dump(exclude={'removed_dimensions', 'dimension_aliases'}))
     if plan.cabinet is None:
         preserve_structure(plan, request.plan)
     else:
@@ -77,6 +79,8 @@ def checked_plan(plan, request):
             item.value_mm = values[item.id]
     except GeometryError as exc:
         questions.append(str(exc))
+    merge_position_duplicates(plan, request.messages)
+    merge_aliases(plan, aliases, request.messages)
     for item in plan.dimensions:
         if item.value_mm is None and item.formula is None:
             questions.append(f'Укажите размер «{item.target}» в миллиметрах.')
@@ -85,6 +89,9 @@ def checked_plan(plan, request):
     resolved = removed | {d.id for d in plan.dimensions if d.value_mm is not None} | (previous.keys() - {d.id for d in plan.dimensions})
     stale_questions = set()
     for old in list(previous.values()) + plan.dimensions:
+        if old.value_mm is not None:
+            # Recompute this server diagnostic; never echo it as a client question.
+            stale_questions.add(legacy_unlinked_question(old))
         if old.id in resolved:
             stale_questions.update((
                 f'Укажите в миллиметрах размер «{old.target}» ({AXES[old.axis]}).',
@@ -132,12 +139,17 @@ class DimensionsProvider:
         self.ai = ai
         self.analysis_prompt = (PROMPTS / 'analysis.md').read_text(encoding='utf-8')
         self.analysis_prompt += '\n\n' + (PROMPTS / 'cabinet.md').read_text(encoding='utf-8')
+        self.links_prompt = (PROMPTS / 'links.md').read_text(encoding='utf-8')
 
     async def analyse(self, request):
         data = analysis_context(request)
+        repaired_plan = None
         for attempt in range(2):
-            raw = await self.ai.analyse(self.analysis_prompt, data, request.references, CabinetAnalysis)
-            plan = checked_plan(raw, request)
+            if repaired_plan is None:
+                raw = await self.ai.analyse(self.analysis_prompt, data, request.references, CabinetAnalysis)
+                plan = checked_plan(raw, request)
+            else:
+                plan = repaired_plan
             if (request.plan and request.plan.drawing_locked and request.plan.cabinet is not None
                     and construction_key(plan.cabinet) != construction_key(request.plan.cabinet)):
                 plan.cabinet = request.plan.cabinet.model_copy(deep=True)
@@ -168,6 +180,22 @@ class DimensionsProvider:
                 plan.questions = [str(exc)]
                 plan.reply = 'Размеры сохранены. Уточним устройство шкафа, чтобы рассчитать детали без догадок.'
                 return plan
+            except UnlinkedDimensions as exc:
+                if attempt:
+                    raise AIError('Модель не связала сохранённые размеры', 'invalid_geometry') from exc
+                repair_data = {'cabinet': plan.cabinet.model_dump(),
+                    'dimensions': [d.model_dump() for d in plan.dimensions if d.formula is None],
+                    'unlinked_dimensions': exc.items,
+                    'messages': data['messages'][-30:]}
+                repair = await self.ai.analyse(self.links_prompt, repair_data, [], DimensionLinkRepair)
+                if not isinstance(repair, DimensionLinkRepair):
+                    raise AIError('Некорректный ответ исправления связей', 'invalid_model_response')
+                try:
+                    apply_links(plan, repair, request.messages)
+                except GeometryError as link_error:
+                    raise AIError('Некорректная привязка размера', 'invalid_geometry') from link_error
+                repaired_plan = plan
+                continue
             except GeometryError as exc:
                 if attempt:
                     raise AIError('Модель дважды вернула некорректную геометрию', 'invalid_geometry') from exc
