@@ -7,7 +7,7 @@ from contracts.workflow import StagePlan, Dimension
 from infrastructure.stage_ai import AIError
 from .geometry import calculate, compile_scene, preserve_structure, GeometryError
 from .cabinet import build as build_cabinet, MissingConstruction, UnlinkedDimensions, construction_key, dimension_references, legacy_unlinked_question
-from .reconciliation import merge_aliases, merge_position_duplicates, apply_links
+from .reconciliation import merge_aliases, merge_position_duplicates, apply_links, restore_gap_answers
 from .models import CabinetAnalysis, DimensionLinkRepair
 from .evidence import numeric_quote, rejection_quote, rejected_dimensions, analysis_context, is_quantity, normalize
 
@@ -125,6 +125,7 @@ def checked_plan(plan, request):
             if overall is not None and item.value_mm is not None and item.value_mm > overall:
                 questions.append(f'Размер «{item.target}» ({item.value_mm:g} мм) превышает габарит {overall:g} мм. Уточните значение.')
     plan.questions = list(dict.fromkeys(q.strip() for q in questions if q.strip()))
+    restore_gap_answers(plan, request.plan, request.messages)
     if plan.questions and plan.questions != list(request.plan.questions if request.plan else []):
         # Модель не должна сообщать «все данные подтверждены», если проверка
         # отклонила выдуманную цитату/расчёт и добавила вопросы.
@@ -142,6 +143,10 @@ class DimensionsProvider:
         self.links_prompt = (PROMPTS / 'links.md').read_text(encoding='utf-8')
 
     async def analyse(self, request):
+        request = request.model_copy(deep=True)
+        if request.plan:
+            previous = request.plan.model_copy(deep=True)
+            restore_gap_answers(request.plan, previous, request.messages)
         data = analysis_context(request)
         repaired_plan = None
         for attempt in range(2):

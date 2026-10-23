@@ -17,6 +17,15 @@ class Dimension(Contract):
     formula: list[Term] | None = Field(default=None, min_length=1, max_length=12)
 
 
+class ShelfGapBinding(Contract):
+    """Server-owned measurement meaning, retained across dialogue turns."""
+    section_id: str
+    dimension_id: str
+    shelf_ids: list[str] = Field(min_length=2, max_length=30)
+    basis: Literal['clear_gap', 'pitch'] | None
+    source_quote: str = Field(min_length=1, max_length=1500)
+
+
 class StagePlan(Contract):
     brief: Brief
     dimensions: list[Dimension] = Field(max_length=120)
@@ -27,6 +36,7 @@ class StagePlan(Contract):
     drawing: Drawing | None = None
     drawing_locked: bool = False
     cabinet: Cabinet | None = None
+    shelf_gap_bindings: list[ShelfGapBinding] = Field(default_factory=list, max_length=30)
 
 
 class StageAnalysisRequest(Contract):
